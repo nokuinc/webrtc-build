@@ -46,8 +46,8 @@ jobs:
     runs-on: macos-26
     steps:
     - uses: actions/checkout@v5
-    - name: Select Xcode 26.0
-      run: sudo xcode-select --switch /Applications/Xcode_26.0.app/Contents/Developer
+    - name: Select Xcode 26.6
+      run: sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
     - name: Build
       id: build
       run: ./build.${{ matrix.name }}.sh "${{ github.event.inputs.commitHash }}" "${{ github.event.inputs.configuration || 'release' }}"
@@ -56,83 +56,3 @@ jobs:
       with:
         name: ${{ steps.build.outputs.framework_name }}.xcframework.zip
         path: build/_package/${{ matrix.name }}/${{ steps.build.outputs.framework_name }}.xcframework.zip
-  build-linux:
-    defaults:
-      run:
-        working-directory: ./build
-    strategy:
-      fail-fast: false
-      matrix:
-        name:
-          - android
-          - android_prefixed
-          - android_prefixed_stripped
-    runs-on: namespace-profile-webrtc-android
-    steps:
-    - uses: actions/checkout@v4
-    - run: ./build.${{ matrix.name }}.sh "${{ github.event.inputs.commitHash }}"
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: webrtc.${{ matrix.name }}.tar.gz
-        path: build/_package/${{ matrix.name }}/webrtc.tar.gz
-  create-release:
-    name: Create Release
-    if: github.ref_type == 'tag'
-    needs:
-      - build-apple
-      - build-linux
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-        name: webrtc.android_prefixed.tar.gz
-    - uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-        name: webrtc.android_prefixed_stripped.tar.gz
-    - uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-        name: LiveKitWebRTC.xcframework.zip
-    - uses: softprops/action-gh-release@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: artifacts/**
-  publish-xcframework:
-    name: Publish
-    if: github.ref_type == 'tag'
-    needs:
-      - create-release
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-        name: LiveKitWebRTC.xcframework.zip
-    - name: Render Package.swift and podspec
-      id: render
-      run: |
-        # Build tags are prefixed with m (m144.7559.13); hosting repo tags are not.
-        VERSION="${GITHUB_REF_NAME#m}"
-        CHECKSUM=$(sha256sum artifacts/LiveKitWebRTC.xcframework.zip | awk '{print $1}')
-        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-        mkdir -p out
-        for f in Package.swift LiveKitWebRTC.podspec; do
-          sed -e "s|{{VERSION}}|${VERSION}|g" \
-              -e "s|{{CHECKSUM}}|${CHECKSUM}|g" \
-              ".github/templates/$f" > "out/$f"
-        done
-    - uses: livekit/publish-xcframework-action@3b8645334fb62b0fd1d7067067819bcd111db157 # main
-      with:
-        xcframework-zip: artifacts/LiveKitWebRTC.xcframework.zip
-        version: ${{ steps.render.outputs.version }}
-        hosting-repo: livekit/webrtc-xcframework
-        files: |
-          out/Package.swift:Package.swift
-          out/LiveKitWebRTC.podspec:LiveKitWebRTC.podspec
-        token: ${{ secrets.XCFRAMEWORK_PAT }}
